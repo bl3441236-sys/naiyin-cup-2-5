@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>奶音杯 2.5 · 流速抽签轮盘</title>
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0; min-height:100vh; display:flex; justify-content:center; align-items:center;
+  background:radial-gradient(circle at 50% 35%,#25263d 0,#10111c 55%,#080910 100%);
+  color:#fff;font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;
+}
+.app{width:min(900px,94vw);text-align:center;padding:28px 18px}
+h1{margin:0 0 6px;font-size:clamp(25px,5vw,42px)}
+.sub{color:#aeb2c9;margin-bottom:22px}
+.main{display:flex;gap:28px;justify-content:center;align-items:center;flex-wrap:wrap}
+.wheelbox{position:relative;width:min(520px,88vw);aspect-ratio:1}
+canvas{width:100%;height:100%;filter:drop-shadow(0 15px 25px #0008)}
+.pointer{
+ position:absolute;left:50%;top:-5px;transform:translateX(-50%);
+ width:0;height:0;border-left:17px solid transparent;border-right:17px solid transparent;
+ border-top:34px solid #fff;filter:drop-shadow(0 3px 3px #000);
+ z-index:2;
+}
+.center{
+ position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+ width:76px;height:76px;border-radius:50%;background:#151625;border:5px solid #fff;
+ display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;
+ z-index:2;box-shadow:0 0 20px #0008;
+}
+button{
+ border:0;border-radius:14px;padding:15px 26px;font-size:18px;font-weight:800;
+ color:white;background:linear-gradient(135deg,#6f5cff,#a24cff);cursor:pointer;
+ box-shadow:0 8px 22px #0006;transition:.15s;touch-action:manipulation;
+}
+button:hover{transform:translateY(-2px)}
+button:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.panel{min-width:240px;max-width:320px;background:#171827cc;border:1px solid #343650;border-radius:20px;padding:22px}
+.result{min-height:125px;display:flex;flex-direction:column;justify-content:center}
+.label{color:#aeb2c9;font-size:14px}
+.value{font-size:42px;font-weight:900;margin:5px 0}
+.normal{color:#78d8ff}.hell{color:#ff6b8a}
+.odds{font-size:13px;color:#8f93aa;line-height:1.7;margin-top:15px}
+.history{margin-top:22px;text-align:left;background:#11121ecc;border-radius:14px;padding:14px;max-height:170px;overflow:auto}
+.history b{display:block;margin-bottom:8px}
+.item{padding:6px 2px;border-bottom:1px solid #27283a;font-size:14px}
+.item:last-child{border:0}
+.tip{margin-top:18px;color:#7f8399;font-size:12px}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>🎡 奶音杯 2.5</h1>
+  <div class="sub">世界计划 · 流速随机抽签轮盘</div>
+
+  <div class="main">
+    <div class="wheelbox">
+      <canvas id="wheel" width="700" height="700"></canvas>
+      <div class="pointer"></div>
+      <div class="center">抽<br>签</div>
+    </div>
+
+    <div class="panel">
+      <div class="result">
+        <div class="label">本次抽取结果</div>
+        <div id="value" class="value">?</div>
+        <div id="type" class="label">点击开始抽签</div>
+      </div>
+      <button id="spin">开始抽签</button>
+      <div class="odds">
+        <b>概率设置</b><br>
+        🟢 正常流速：70%<br>
+        🔴 阴间流速：30%<br>
+        每次抽取独立计算
+      </div>
+      <div class="history">
+        <b>📋 抽签记录</b>
+        <div id="history">暂无记录</div>
+      </div>
+    </div>
+  </div>
+  <div class="tip">正常流速：8.0～11.0　｜　阴间流速：1.0～4.0 / 12.0</div>
+</div>
+
+<script>
+const canvas=document.getElementById("wheel");
+const ctx=canvas.getContext("2d");
+const spinBtn=document.getElementById("spin");
+const valueEl=document.getElementById("value");
+const typeEl=document.getElementById("type");
+const historyEl=document.getElementById("history");
+
+const normal = [];
+for(let i=80;i<=120;i++) normal.push((i/10).toFixed(1));
+
+// 轮盘视觉权重：12个正常格 + 4个阴间格 = 75% / 25%
+const segments = [
+  ...Array(14).fill(null).map((_,i)=>({name:normal[Math.floor(i*normal.length/14)], type:"normal"})),
+  {name:"极慢 1.0",type:"hell"},
+  {name:"极慢 2.0",type:"hell"},
+  {name:"极慢 3.0",type:"hell"},
+  {name:"极慢 4.0",type:"hell"},
+  {name:"极快 12.0",type:"hell"},
+  {name:"极快 12.0",type:"hell"}
+];
+
+const colors=["#3e8cff","#4ba8ff","#62c8ff","#5e91ff","#7b6cff","#9a67ff","#6b75ff","#43b9e8"];
+let angle=0, spinning=false, history=[];
+
+function draw(){
+  const n=segments.length, cx=350, cy=350, r=330;
+  ctx.clearRect(0,0,700,700);
+  for(let i=0;i<n;i++){
+    const a0=angle+i*2*Math.PI/n;
+    const a1=angle+(i+1)*2*Math.PI/n;
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,a0,a1);ctx.closePath();
+    ctx.fillStyle=segments[i].type==="hell" ? "#e84f70" : colors[i%colors.length];
+    ctx.fill();
+    ctx.strokeStyle="#151625";ctx.lineWidth=4;ctx.stroke();
+
+    ctx.save();ctx.translate(cx,cy);ctx.rotate((a0+a1)/2);
+    ctx.textAlign="right";ctx.fillStyle="#fff";ctx.font="bold 22px Arial";
+    ctx.fillText(segments[i].name,r-18,8);ctx.restore();
+  }
+  ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.strokeStyle="#fff";ctx.lineWidth=7;ctx.stroke();
+}
+draw();
+
+function choose(){
+  // 严格按 70% / 30% 概率决定类型，再从对应范围随机流速
+  const isHell=Math.random()<0.30;
+  if(isHell){
+    const slow=Math.random()<0.5;
+    const v=slow ? (1+Math.floor(Math.random()*4)) : 12.0;
+    return {name:v.toFixed(1),type:"hell"};
+  }
+  const v=8+Math.random()*3;
+  return {name:v.toFixed(1),type:"normal"};
+}
+
+function spin(){
+  if(spinning)return;
+  spinning=true;spinBtn.disabled=true;
+  const target=choose();
+
+  // 视觉轮盘结果对齐到顶部指针；实际结果由独立75/25抽签决定
+  const idx=segments.findIndex(s=>s.name===target.name && s.type===target.type);
+  const n=segments.length;
+  const segAngle=2*Math.PI/n;
+  const targetAngle=-(idx+0.5)*segAngle;
+  const current=((angle%(2*Math.PI))+2*Math.PI)%(2*Math.PI);
+  let delta=targetAngle-current;
+  while(delta<0)delta+=2*Math.PI;
+  delta+=Math.PI*2*(5+Math.floor(Math.random()*3));
+
+  const start=angle, end=angle+delta, duration=3600;
+  const t0=performance.now();
+  function anim(t){
+    const p=Math.min(1,(t-t0)/duration);
+    const ease=1-Math.pow(1-p,4);
+    angle=start+(end-start)*ease;
+    draw();
+    if(p<1){requestAnimationFrame(anim);return;}
+    spinning=false;spinBtn.disabled=false;
+    valueEl.textContent=target.name;
+    valueEl.className="value "+(target.type==="hell"?"hell":"normal");
+    typeEl.textContent=target.type==="hell"?"🔥 阴间流速":"🟢 正常流速";
+    history.unshift(target);
+    renderHistory();
+  }
+  requestAnimationFrame(anim);
+}
+
+function renderHistory(){
+  historyEl.innerHTML=history.map((x,i)=>
+    `<div class="item">第 ${history.length-i} 次：<b class="${x.type==="hell"?"hell":"normal"}">${x.name}</b>　${x.type==="hell"?"阴间":"正常"}</div>`
+  ).join("");
+}
+spinBtn.addEventListener("click",spin);
+</script>
+</body>
+</html>
